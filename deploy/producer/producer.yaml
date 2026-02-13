@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ns-producer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: producer-script
+  namespace: ns-producer
+data:
+  producer.py: |
+    import pulsar
+    import time
+    import datetime
+    import sys
+    import json
+
+    print("Connecting to Pulsar...", flush=True)
+    try:
+        client = pulsar.Client('pulsar://pulsar-broker.pulsar.svc.cluster.local:6650')
+        producer = client.create_producer('persistent://public/default/topic-broadcast-stable')
+        print("Producer created!", flush=True)
+    except Exception as e:
+        print(f"Failed to connect: {e}", flush=True)
+        sys.exit(1)
+
+    counter = 1
+    while True:
+        try:
+            msg_text = f'Message #{counter} at {datetime.datetime.now()}'
+            # Send JSON payload for Dapr compatibility
+            payload = json.dumps({"data": msg_text, "id": str(counter), "source": "producer"}).encode('utf-8')
+            producer.send(payload)
+            print(f"Published: {msg_text}", flush=True)
+            counter += 1
+            time.sleep(1)
+        except Exception as e:
+            print(f"Error sending: {e}", flush=True)
+            time.sleep(1)
+
+    client.close()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pulsar-producer
+  namespace: ns-producer
+  labels:
+    app: pulsar-producer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pulsar-producer
+  template:
+    metadata:
+      labels:
+        app: pulsar-producer
+    spec:
+      containers:
+      - name: producer
+        image: python:3.9-slim
+        command: ["/bin/sh", "-c"]
+        args:
+          - pip install pulsar-client && python /app/producer.py
+        volumeMounts:
+        - name: script
+          mountPath: /app
+      volumes:
+      - name: script
+        configMap:
+          name: producer-script

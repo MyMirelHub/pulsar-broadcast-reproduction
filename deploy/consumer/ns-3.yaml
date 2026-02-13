@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ns-3
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: pulsar-broadcast
+  namespace: ns-3
+spec:
+  type: pubsub.pulsar
+  version: v1
+  metadata:
+  - name: host
+    value: "pulsar://pulsar-broker.pulsar.svc.cluster.local:6650"
+  - name: consumerID
+    value: "consumer-3-stable"
+  - name: subscribeInitialPosition
+    value: "earliest"
+---
+# App ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: subscriber-app-source
+  namespace: ns-3
+data:
+  main.go: |
+        package main
+    
+        import (
+            "encoding/json"
+            "fmt"
+            "log"
+            "net/http"
+            "os"
+        )
+    
+        type CloudEvent struct {
+            SpecVersion string      `json:"specversion"`
+            Type        string      `json:"type"`
+            Source      string      `json:"source"`
+            ID          string      `json:"id"`
+            Data        interface{} `json:"data"`
+        }
+    
+        func main() {
+            http.HandleFunc("/dapr/subscribe", func(w http.ResponseWriter, r *http.Request) {
+                subscriptions := []map[string]string{
+                    {
+                        "pubsubname": "pulsar-broadcast",
+                    "topic":      "topic-broadcast-stable",
+                    "route":      "handler-broadcast",
+                    },
+                }
+                json.NewEncoder(w).Encode(subscriptions)
+            })
+    
+            http.HandleFunc("/handler-broadcast", func(w http.ResponseWriter, r *http.Request) {
+                var event CloudEvent
+                if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+                    log.Printf("Error decoding event: %v", err)
+                    http.Error(w, "Bad Request", http.StatusBadRequest)
+                    return
+                }
+                fmt.Printf("RECEIVED_BROADCAST: %v\n", event.Data)
+                w.WriteHeader(http.StatusOK)
+            })
+    
+            port := os.Getenv("APP_PORT")
+            if port == "" {
+                port = "3000"
+            }
+    
+            fmt.Printf("Go Broadcast App listening on %s...\n", port)
+            log.Fatal(http.ListenAndServe(":"+port, nil))
+        }
+---
+# App Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pulsar-subscriber
+  namespace: ns-3
+  labels:
+    app: pulsar-subscriber
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pulsar-subscriber
+  template:
+    metadata:
+      labels:
+        app: pulsar-subscriber
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "pulsar-subscriber"
+        dapr.io/app-port: "3000"
+    spec:
+      containers:
+      - name: go-subscriber
+        image: golang:1.23
+        command: ["go", "run", "/app/main.go"]
+        ports:
+        - containerPort: 3000
+        volumeMounts:
+        - name: app-source
+          mountPath: /app
+      volumes:
+      - name: app-source
+        configMap:
+          name: subscriber-app-source
