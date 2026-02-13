@@ -29,10 +29,6 @@ This reproduction shows independent broadcast consumption in Dapr with `subscrib
 - Each consumer is defined in one YAML file that includes the namespace, Dapr component, and app deployment: [deploy/consumer/ns-1.yaml](deploy/consumer/ns-1.yaml), [deploy/consumer/ns-2.yaml](deploy/consumer/ns-2.yaml), [deploy/consumer/ns-3.yaml](deploy/consumer/ns-3.yaml), [deploy/consumer/ns-4.yaml](deploy/consumer/ns-4.yaml).
 - The producer deployment is in [deploy/producer/producer.yaml](deploy/producer/producer.yaml).
 
-## Retention
-Default retention is set to 7 days in the Pulsar Helm values file:
-- [deploy/pulsar/pulsar-helm-values-minimal.yaml](deploy/pulsar/pulsar-helm-values-minimal.yaml#L34-L39)
-
 ## Install Pulsar
 ```bash
 helm install pulsar apache/pulsar \
